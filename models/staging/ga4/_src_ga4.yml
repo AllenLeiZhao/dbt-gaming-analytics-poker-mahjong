@@ -1,0 +1,11 @@
+sources:
+  - name: ga4_poker_mahjong
+    database: game-analytics-492418
+    schema: analytics_504624588
+    tables:
+      - name: events
+        identifier: events_*
+        description: "Raw GA4 event data for Poker Mahjong"
+      - name: users
+        identifier: pseudonymous_users_*
+        description: "Daily pseudonymous user attributes snapshot"

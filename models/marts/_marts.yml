@@ -1,0 +1,64 @@
+models:
+  - name: fct_dau
+    description: "Daily Active Users based on session_start events"
+    columns:
+      - name: event_date
+        description: "Date in YYYYMMDD format"
+        data_tests:
+          - not_null
+          - unique
+      - name: dau
+        description: "Count of distinct users with at least one session"
+        data_tests:
+          - not_null
+  
+  - name: fct_new_users
+    description: "Daily new user count based on first_open events"
+    columns:
+      - name: event_date
+        description: "Date in YYYYMMDD format"
+        data_tests:
+          - not_null
+          - unique
+      - name: new_users
+        description: "Count of distinct new users"
+        data_tests:
+          - not_null
+
+  - name: fct_sessions
+    description: "Daily session metrics"
+    columns:
+      - name: event_date
+        description: "Date in YYYYMMDD format"
+        data_tests:
+          - not_null
+          - unique
+      - name: total_sessions
+        description: "Total number of sessions"
+        data_tests:
+          - not_null
+      - name: active_users
+        description: "Count of distinct active users"
+        data_tests:
+          - not_null
+      - name: sessions_per_user
+        description: "Average sessions per user"
+        data_tests:
+          - not_null
+
+  - name: fct_retentions
+    description: "D1 and D7 user retention by cohort date"
+    columns:
+      - name: cohort_date
+        description: "Date when new users first opened the app"
+        data_tests:
+          - not_null
+          - unique
+      - name: new_users
+        description: "Number of new users on cohort date"
+        data_tests:
+          - not_null
+      - name: d1_retention_rate
+        description: "Percentage of users who returned on day 1"
+      - name: d7_retention_rate
+        description: "Percentage of users who returned on day 7"
