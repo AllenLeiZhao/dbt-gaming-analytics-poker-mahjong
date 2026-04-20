@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: appsflyer
+    database: game-analytics-492418
+    schema: raw_appsflyer
+    tables:
+      - name: raw_af_installs
+      - name: raw_af_events
