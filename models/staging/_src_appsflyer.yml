@@ -7,3 +7,4 @@ sources:
     tables:
       - name: raw_af_installs
       - name: raw_af_events
+      - name: raw_af_cost
