@@ -48,6 +48,11 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         .str.lower()
         .str.replace(" ", "_")
         .str.replace("-", "_")
+        .str.replace("/", "_")
+        .str.replace("(", "")
+        .str.replace(")", "")
+        .str.replace("%", "pct")
+        .str.replace(".", "_")
     )
     return df
 
