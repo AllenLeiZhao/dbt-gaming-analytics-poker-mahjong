@@ -1,7 +1,12 @@
 """
 af_to_bigquery.py
-Pull AppsFlyer installs, in-app events, and cost aggregate data
-Write to BigQuery raw_appsflyer dataset
+Pull AppsFlyer data and write to BigQuery raw_appsflyer dataset
+Reports:
+  1. installs_report       - user-level install attribution
+  2. in_app_events_report  - user-level in-app events
+  3. organic_installs      - organic install attribution
+  4. partners_by_date      - daily cost/revenue aggregate
+  5. cohort_report         - cohort ROI by Day 0/1/3/7/15/30
 Location: dbt-gaming-analytics/scripts/af_to_bigquery.py
 """
 
@@ -12,6 +17,7 @@ from google.cloud import bigquery
 from datetime import datetime, timedelta
 import time
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,21 +33,26 @@ END_DATE   = datetime.today().strftime("%Y-%m-%d")
 START_DATE = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
 # ─────────────────────────────────────────────────────────
 
-BASE_URL        = "https://hq1.appsflyer.com/api/raw-data/export/app"
+# API base URLs
+BASE_URL_RAW    = "https://hq1.appsflyer.com/api/raw-data/export/app"
 BASE_URL_AGG    = "https://hq1.appsflyer.com/api/agg-data/export/app"
+BASE_URL_COHORT = "https://hq1.appsflyer.com/api/cohorts/v1/data/app"
 
-REPORTS = {
-    "raw_af_installs": "installs_report/v5",
-    "raw_af_events":   "in_app_events_report/v5",
+# Raw data report endpoints
+RAW_REPORTS = {
+    "raw_af_installs":         "installs_report/v5",
+    "raw_af_events":           "in_app_events_report/v5",
+    "raw_af_organic_installs": "organic_installs_report/v5",
 }
 
-REPORTS_AGG = {
-    "raw_af_cost":  "partners_by_date_report/v5",
+# Aggregate report endpoints
+AGG_REPORTS = {
+    "raw_af_cost": "partners_by_date_report/v5",
 }
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename AF Title Case columns to snake_case for BigQuery"""
+    """Rename AF columns to snake_case for BigQuery compatibility"""
     df.columns = (
         df.columns
         .str.strip()
@@ -57,8 +68,8 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def pull_report(report_type: str, endpoint: str, base_url: str) -> pd.DataFrame:
-    """Call AppsFlyer Pull API and return a DataFrame"""
+def pull_raw_report(report_type: str, endpoint: str, base_url: str) -> pd.DataFrame:
+    """Call AppsFlyer Pull API (GET) and return a DataFrame"""
     url = f"{base_url}/{APP_ID}/{endpoint}"
     params = {
         "from":     START_DATE,
@@ -66,9 +77,7 @@ def pull_report(report_type: str, endpoint: str, base_url: str) -> pd.DataFrame:
         "timezone": "UTC",
         "currency": "USD",
     }
-    headers = {
-        "Authorization": f"Bearer {API_TOKEN}"
-    }
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
 
     print(f"[{report_type}] Pulling data from {START_DATE} to {END_DATE} ...")
     resp = requests.get(url, params=params, headers=headers, timeout=120)
@@ -81,8 +90,47 @@ def pull_report(report_type: str, endpoint: str, base_url: str) -> pd.DataFrame:
     return df
 
 
+def pull_cohort_report() -> pd.DataFrame:
+    """Call AppsFlyer Cohort API (POST) and return a DataFrame"""
+    url = f"{BASE_URL_COHORT}/{APP_ID}?format=csv"
+    headers = {
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Content-Type":  "application/json",
+        "Accept":        "application/json",
+    }
+    payload = {
+        "cohort_type":       "user_acquisition",
+        "min_cohort_size":   1,
+        "preferred_timezone": False,
+        "from":              START_DATE,
+        "to":                END_DATE,
+        "aggregation_type":  "cumulative",
+        "per_user":          True,
+        "groupings":         ["pid", "date"],
+        "kpis":              ["revenue", "roi", "roas"],
+        "filters": {
+            "period": [0, 1, 3, 7, 15, 30]
+        }
+    }
+
+    print(f"[raw_af_cohort] Pulling cohort data from {START_DATE} to {END_DATE} ...")
+    resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=120)
+
+    if resp.status_code != 200:
+        print(f"  WARNING: Cohort API returned {resp.status_code} - {resp.text[:300]}")
+        return pd.DataFrame()
+
+    df = pd.read_csv(StringIO(resp.text), low_memory=False)
+    print(f"[raw_af_cohort] Done — {len(df)} rows, {len(df.columns)} columns")
+    return df
+
+
 def write_to_bq(df: pd.DataFrame, table_name: str):
     """Write DataFrame to BigQuery in append mode"""
+    if df.empty:
+        print(f"[{table_name}] Empty DataFrame, skipping BQ write.")
+        return
+
     client = bigquery.Client(project=PROJECT_ID)
     table_ref = f"{PROJECT_ID}.{DATASET}.{table_name}"
 
@@ -103,27 +151,29 @@ def main():
     print(f"Project: {PROJECT_ID}.{DATASET}")
     print(f"Date range: {START_DATE} to {END_DATE}\n")
 
-    # 1. Install attribution
-    df_installs = pull_report("raw_af_installs", REPORTS["raw_af_installs"], BASE_URL)
-    df_installs = normalize_columns(df_installs)
-    print(f"[raw_af_installs] Writing {len(df_installs)} rows to BQ ...")
-    write_to_bq(df_installs, "raw_af_installs")
-
+    # 1. Install attribution (non-organic)
+    df = pull_raw_report("raw_af_installs", RAW_REPORTS["raw_af_installs"], BASE_URL_RAW)
+    write_to_bq(normalize_columns(df), "raw_af_installs")
     time.sleep(2)
 
     # 2. In-app events
-    df_events = pull_report("raw_af_events", REPORTS["raw_af_events"], BASE_URL)
-    df_events = normalize_columns(df_events)
-    print(f"[raw_af_events] Writing {len(df_events)} rows to BQ ...")
-    write_to_bq(df_events, "raw_af_events")
-
+    df = pull_raw_report("raw_af_events", RAW_REPORTS["raw_af_events"], BASE_URL_RAW)
+    write_to_bq(normalize_columns(df), "raw_af_events")
     time.sleep(2)
 
-    # 3. Cost aggregate report (partners by date)
-    df_cost = pull_report("raw_af_cost", REPORTS_AGG["raw_af_cost"], BASE_URL_AGG)
-    df_cost = normalize_columns(df_cost)
-    print(f"[raw_af_cost] Writing {len(df_cost)} rows to BQ ...")
-    write_to_bq(df_cost, "raw_af_cost")
+    # 3. Organic installs
+    df = pull_raw_report("raw_af_organic_installs", RAW_REPORTS["raw_af_organic_installs"], BASE_URL_RAW)
+    write_to_bq(normalize_columns(df), "raw_af_organic_installs")
+    time.sleep(2)
+
+    # 4. Cost aggregate (partners by date)
+    df = pull_raw_report("raw_af_cost", AGG_REPORTS["raw_af_cost"], BASE_URL_AGG)
+    write_to_bq(normalize_columns(df), "raw_af_cost")
+    time.sleep(2)
+
+    # 5. Cohort ROI (Day 0/1/3/7/15/30)
+    df = pull_cohort_report()
+    write_to_bq(normalize_columns(df), "raw_af_cohort")
 
     print("\n=== All done ===")
 
