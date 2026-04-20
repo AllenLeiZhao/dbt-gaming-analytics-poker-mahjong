@@ -99,15 +99,15 @@ def pull_cohort_report() -> pd.DataFrame:
         "Accept":        "application/json",
     }
     payload = {
-        "cohort_type":       "user_acquisition",
-        "min_cohort_size":   1,
+        "cohort_type":        "user_acquisition",
+        "min_cohort_size":    1,
         "preferred_timezone": False,
-        "from":              START_DATE,
-        "to":                END_DATE,
-        "aggregation_type":  "cumulative",
-        "per_user":          True,
-        "groupings":         ["pid", "date"],
-        "kpis":              ["revenue", "roi", "roas"],
+        "from":               START_DATE,
+        "to":                 END_DATE,
+        "aggregation_type":   "cumulative",
+        "per_user":           True,
+        "groupings":          ["pid", "date"],
+        "kpis":               ["revenue", "roi", "roas"],
         "filters": {
             "period": [0, 1, 3, 7, 15, 30]
         }
@@ -173,7 +173,10 @@ def main():
 
     # 5. Cohort ROI (Day 0/1/3/7/15/30)
     df = pull_cohort_report()
-    write_to_bq(normalize_columns(df), "raw_af_cohort")
+    if not df.empty:
+        write_to_bq(normalize_columns(df), "raw_af_cohort")
+    else:
+        print("[raw_af_cohort] No data returned, skipping.")
 
     print("\n=== All done ===")
 
