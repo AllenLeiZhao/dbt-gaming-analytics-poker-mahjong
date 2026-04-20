@@ -4,8 +4,9 @@ select
     event_timestamp,
     user_pseudo_id,
     platform,
-    geo.country         as country,
-    device.category     as device_category,
+    geo.country                     as country,
+    device.category                 as device_category,
+    device.advertising_id           as advertising_id,
     
     (select value.int_value 
      from unnest(event_params) 
